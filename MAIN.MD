@@ -1,503 +1,667 @@
-# Laboratorium 2 — Rezystancja, Prawo Ohma, Rezystor
+# Technika Cyfrowa i Mikroprocesorowa — Laboratorium 2
 
-## Kompletny przewodnik z rozwiązaniami
-
----
-
-## Zagadnienia teoretyczne
-
-### Prawo Ohma — wzór i zależności
-
-Prawo Ohma opisuje zależność między napięciem (U), prądem (I) i rezystancją (R):
-
-```
-U = I × R
-I = U / R
-R = U / I
-```
-
-Gdzie:
-- **U** — napięcie w woltach [V]
-- **I** — natężenie prądu w amperach [A]
-- **R** — rezystancja w omach [Ω]
+## Kompletny przewodnik z rozwiązaniami (ATmega328P / Arduino Nano / EduTar-NANO)
 
 ---
 
-### Tolerancja rezystora
+## Spis treści
 
-**Co to jest?** Tolerancja rezystora określa maksymalne dopuszczalne odchylenie rzeczywistej wartości rezystancji od wartości nominalnej, wyrażone w procentach.
-
-**Przykład: tolerancja 5% dla rezystora 1kΩ:**
-
-```
-Wartość nominalna:  1000 Ω
-Tolerancja:         ±5%
-Odchylenie:         1000 × 0.05 = ±50 Ω
-Zakres rzeczywisty: 950 Ω  –  1050 Ω
-```
-
-Typowe tolerancje: ±1% (brązowy pasek), ±5% (złoty pasek), ±10% (srebrny pasek).
+1. [Obsługa portów — wyjścia i wejścia](#1-obsługa-portów--wyjścia-i-wejścia)
+2. [Generowanie dźwięku — buzzer](#2-generowanie-dźwięku--buzzer)
+3. [Wyświetlacz 7-segmentowy — 1 cyfra](#3-wyświetlacz-7-segmentowy--1-cyfra)
+4. [Wyświetlacz 7-segmentowy — 4 cyfry — multipleksowanie](#4-wyświetlacz-7-segmentowy--4-cyfry--multipleksowanie)
+5. [Zadanie domowe — funkcja nieblokująca](#5-zadanie-domowe--funkcja-nieblokująca)
 
 ---
 
-### Moc na rezystorze
+## 1. Obsługa portów — wyjścia i wejścia
 
-**Wzory na moc:**
+### Zadanie 1.1 — Pytania i odpowiedzi
+
+#### Jak ustawić PB0 jako wyjście w stanie WYSOKIM?
+
+```c
+DDRB |= (1 << PB0);   // PB0 jako wyjście (1 w rejestrze DDR)
+PORTB |= (1 << PB0);  // PB0 w stanie wysokim (1 w rejestrze PORT)
+```
+
+**Wyjaśnienie:**
+- `DDRB` (Data Direction Register B) — ustawia kierunek pinu: `1` = wyjście, `0` = wejście
+- `PORTB` — ustawia stan wyjścia: `1` = stan wysoki (HIGH, ~5V), `0` = stan niski (LOW, 0V)
+- `|=` — operator OR z przypisaniem, ustawia wybrany bit bez zmieniania pozostałych
+
+#### Jak ustawić PB0 jako wyjście w stanie NISKIM?
+
+```c
+DDRB |= (1 << PB0);    // PB0 jako wyjście
+PORTB &= ~(1 << PB0);  // PB0 w stanie niskim
+```
+
+**Wyjaśnienie:**
+- `&= ~(1 << PB0)` — zeruje bit PB0, nie ruszając pozostałych bitów
+
+#### Co to jest stan wysokiej impedancji (Hi-Z)?
+
+Stan wysokiej impedancji (Hi-Z) to domyślny stan pinu mikrokontrolera po resecie — pin jest ustawiony jako **wejście** (`DDR = 0`) bez podciągania (`PORT = 0`). W tym stanie pin "wisi w powietrzu" i jest podatny na zakłócenia elektromagnetyczne — może odczytywać losowe wartości.
+
+**Jak go uniknąć?**
+
+```c
+// Metoda 1: Włączyć wewnętrzny pull-up
+DDRB &= ~(1 << PB0);  // PB0 jako wejście
+PORTB |= (1 << PB0);  // Włączenie pull-up (stan domyślny = HIGH)
+
+// Metoda 2: Ustawić pin jako wyjście
+DDRB |= (1 << PB0);   // PB0 jako wyjście
+```
+
+#### Co to są drgania styków?
+
+Drgania styków (contact bounce) — zjawisko wielokrotnego zwarcia i rozwarcia styku przy jednym naciśnięciu przycisku. Trwa ok. 5-50 ms. Mikrokontroler jest tak szybki, że odczytuje te wielokrotne impulsy jako wiele naciśnięć.
+
+**Jak sobie z nimi radzić?**
+
+```c
+// Metoda programowa — debouncing z opóźnieniem
+if (!(PINC & (1 << PC0))) {     // Przycisk naciśnięty (aktywny LOW)
+    _delay_ms(20);               // Czekamy 20ms aż drgania ustaną
+    if (!(PINC & (1 << PC0))) {  // Sprawdzamy ponownie
+        // Przycisk faktycznie naciśnięty — wykonaj akcję
+    }
+}
+```
+
+#### Jak ustawić PC0 jako wejście z PULL-UP?
+
+```c
+DDRC &= ~(1 << PC0);  // PC0 jako wejście (0 w DDR)
+PORTC |= (1 << PC0);  // Włączenie wewnętrznego pull-up
+```
+
+**Wyjaśnienie:**
+- Gdy `DDR = 0` (wejście) i `PORT = 1` → aktywny wewnętrzny rezystor pull-up (~20-50kΩ)
+- Pin domyślnie odczytuje `1` (HIGH)
+- Naciśnięcie przycisku (zwierającego do GND) daje `0` (LOW)
+- Odczyt: `if (!(PINC & (1 << PC0)))` — prawda gdy przycisk naciśnięty
+
+### Podsumowanie rejestrów portów
 
 ```
-P = U × I
-P = I² × R
-P = U² / R
+DDRx  — kierunek:  0 = wejście,  1 = wyjście
+PORTx — wyjście:   0 = LOW,      1 = HIGH
+                    (wejście:  0 = Hi-Z,     1 = pull-up)
+PINx  — odczyt stanu pinu (tylko do odczytu)
 ```
 
-Gdzie **P** — moc w watach [W].
-
-**Moc rezystora (moc znamionowa)** — to maksymalna moc, jaką rezystor może bezpiecznie rozpraszać w postaci ciepła bez ryzyka uszkodzenia. Typowe wartości: 1/8W, 1/4W, 1/2W, 1W, 2W, 5W.
-
-**Tolerancja mocy (+20%):** Producenci stosują zapas bezpieczeństwa, rezystor oznaczony jako 1/4W może krótkotrwale wytrzymać do 0.3W, ale nie należy na tym polegać w projektowaniu.
+| DDRx | PORTx | Tryb pinu |
+|------|-------|-----------|
+| 0 | 0 | Wejście Hi-Z (domyślne) |
+| 0 | 1 | Wejście z pull-up |
+| 1 | 0 | Wyjście LOW |
+| 1 | 1 | Wyjście HIGH |
 
 ---
 
-## Zadanie 1 — Obliczenia mocy i prądu
+## 2. Generowanie dźwięku — buzzer
 
-### Schemat układu
+### Zadanie 2.1 — Sterowanie buzzerem
 
-```
-    +---[R]---+
-    |         |
-   (+)       (-)
-    |         |
-    +---[V]---+
+Buzzer na płytce EduTar-NANO jest **buzzerem pasywnym** — wymaga sygnału prostokątnego (zmiennego HIGH/LOW) o odpowiedniej częstotliwości. Podłączamy go do wybranego pinu i generujemy falę prostokątną.
 
-V = źródło napięcia
-R = rezystor
-```
+**Sterowanie buzzerem — sygnał prostokątny:**
 
-Oznaczenia na schemacie: strzałka prądu I płynie od + do - (kierunek umowny), napięcie U mierzone na rezystorze.
+```c
+// Buzzer podłączony np. do PB1
+#define BUZZER PB1
 
----
+void buzzer_on(uint16_t freq_hz, uint16_t duration_ms) {
+    uint16_t period_us = 1000000UL / freq_hz;  // okres w us
+    uint16_t half_period = period_us / 2;
+    uint32_t cycles = (uint32_t)freq_hz * duration_ms / 1000;
 
-### Przypadek 1: R = 470Ω, U = 5V
-
-```
-I = U / R = 5 / 470 = 0.01064 A ≈ 10.64 mA
-
-P = U² / R = 25 / 470 = 0.05319 W ≈ 53.2 mW
-```
-
-**Wynik: I ≈ 10.64 mA, P ≈ 53.2 mW**
-Rezystor 1/4W (250 mW) — **TAK, wystarczy** (53.2 mW << 250 mW)
-
----
-
-### Przypadek 2: R = 470Ω, U = 12V
-
-```
-I = U / R = 12 / 470 = 0.02553 A ≈ 25.53 mA
-
-P = U² / R = 144 / 470 = 0.30638 W ≈ 306.4 mW
+    for (uint32_t i = 0; i < cycles; i++) {
+        PORTB |= (1 << BUZZER);
+        _delay_us(half_period);      // Uwaga: _delay_us wymaga stałej
+        PORTB &= ~(1 << BUZZER);
+        _delay_us(half_period);
+    }
+}
 ```
 
-**Wynik: I ≈ 25.53 mA, P ≈ 306.4 mW**
-Rezystor 1/4W (250 mW) — **NIE, moc za duża!** (306.4 mW > 250 mW). Potrzebny rezystor min. 1/2W.
+**Prostsza wersja z _delay_ms:**
 
----
-
-### Przypadek 3: R = 1kΩ, U = 24V
-
-```
-I = U / R = 24 / 1000 = 0.024 A = 24 mA
-
-P = U² / R = 576 / 1000 = 0.576 W = 576 mW
-```
-
-**Wynik: I = 24 mA, P = 576 mW**
-Rezystor 1/4W (250 mW) — **NIE, moc za duża!** (576 mW > 250 mW). Potrzebny rezystor min. 1W.
-
----
-
-### Przypadek 4: R = 100kΩ, U = 230V
-
-```
-I = U / R = 230 / 100000 = 0.0023 A = 2.3 mA
-
-P = U² / R = 52900 / 100000 = 0.529 W = 529 mW
+```c
+void beep(uint16_t duration_ms) {
+    // Generuj ~1kHz przez zadany czas
+    for (uint16_t i = 0; i < duration_ms; i++) {
+        PORTB |= (1 << BUZZER);
+        _delay_us(500);
+        PORTB &= ~(1 << BUZZER);
+        _delay_us(500);
+    }
+}
 ```
 
-**Wynik: I = 2.3 mA, P = 529 mW**
-Rezystor 1/4W (250 mW) — **NIE, moc za duża!** (529 mW > 250 mW). Potrzebny rezystor min. 1W.
+### Zadanie 2.2 — Odliczanie do 8 z LED i buzzerem
 
-> **UWAGA:** Napięcie 230V to napięcie sieciowe — wymaga specjalnych rezystorów o odpowiednim napięciu znamionowym (nie tylko mocy!). Standardowe rezystory THT mają napięcie max. 200-500V.
+**Pełny program:**
 
----
+```c
+#include <avr/io.h>
+#include <util/delay.h>
 
-### Podsumowanie Zadania 1
+#define BUZZER PB1  // Dostosuj pin buzzera do płytki
 
-| R | U | I | P | Rezystor 1/4W? |
-|---|---|---|---|-----------------|
-| 470Ω | 5V | 10.64 mA | 53.2 mW | **TAK** |
-| 470Ω | 12V | 25.53 mA | 306.4 mW | **NIE** (min. 1/2W) |
-| 1kΩ | 24V | 24 mA | 576 mW | **NIE** (min. 1W) |
-| 100kΩ | 230V | 2.3 mA | 529 mW | **NIE** (min. 1W) |
+// Krótki sygnał dźwiękowy (~100ms, ~1kHz)
+void beep_short(void) {
+    for (uint16_t i = 0; i < 100; i++) {
+        PORTB |= (1 << BUZZER);
+        _delay_us(500);
+        PORTB &= ~(1 << BUZZER);
+        _delay_us(500);
+    }
+}
 
----
+// Przerywany sygnał dźwiękowy
+void beep_alarm(uint16_t duration_s) {
+    for (uint16_t s = 0; s < duration_s * 5; s++) {
+        beep_short();
+        _delay_ms(100);
+    }
+}
 
-## Zadanie 2 — Pomiary i charakterystyka U/I
+int main(void) {
+    // === KONFIGURACJA ===
+    DDRD = 0xFF;            // Port D jako wyjście (8 diod LED)
+    DDRB |= (1 << BUZZER); // Pin buzzera jako wyjście
+    PORTD = 0x00;           // Wszystkie LED wyłączone
 
-### Cel
+    // === ODLICZANIE DO 8 ===
+    for (uint8_t i = 0; i < 8; i++) {
+        _delay_ms(1000);                  // Czekaj 1 sekundę
 
-Zbudować obwód z rezystorem i amperomierzem, zmierzyć prąd przy różnych napięciach, narysować charakterystykę U/I (która dla rezystora liniowego powinna być linią prostą).
+        PORTD = (PORTD << 1) | 0x01;     // Zapal kolejną diodę (narastający pasek)
+        // Alternatywnie: PORTD |= (1 << i);
 
-### Schemat pomiarowy
+        beep_short();                     // Krótki sygnał dźwiękowy
+    }
 
-```
-    +---[A]---[R]---+
-    |               |
-   (+)             (-)
-    |               |
-    +----[V_zas]----+
+    // === MIGANIE + ALARM PRZEZ 5 SEKUND ===
+    for (uint8_t j = 0; j < 25; j++) {   // 5s / 0.2s = 25 cykli
+        PORTD = 0xFF;       // Wszystkie LED ON
+        beep_short();       // Dźwięk
+        _delay_ms(100);
+        PORTD = 0x00;       // Wszystkie LED OFF
+        _delay_ms(100);
+    }
 
-A = amperomierz (szeregowo!)
-R = rezystor
-V_zas = zasilacz laboratoryjny (regulowany)
+    // === KONIEC — program nic nie robi ===
+    PORTD = 0x00;           // LED wyłączone
+    while (1) {
+        // Pusta pętla — czekaj na reset
+    }
 
-Woltomierz podłączamy RÓWNOLEGLE do rezystora.
-```
-
----
-
-### Pomiar 1: R = 100Ω, zakres 0–5V
-
-**Obliczenie prądu maksymalnego (sprawdzenie bezpieczeństwa):**
-
-```
-I_max = U_max / R = 5 / 100 = 50 mA
-P_max = U² / R = 25 / 100 = 250 mW = 1/4 W
-```
-
-Amperomierz na zakresie mA — 50 mA jest bezpieczne. Rezystor 1/4W — na granicy, ale OK.
-
-**Przykładowa tabela pomiarowa:**
-
-| U [V] | I obliczone [mA] |
-|-------|-------------------|
-| 0.0 | 0.0 |
-| 0.5 | 5.0 |
-| 1.0 | 10.0 |
-| 1.5 | 15.0 |
-| 2.0 | 20.0 |
-| 2.5 | 25.0 |
-| 3.0 | 30.0 |
-| 3.5 | 35.0 |
-| 4.0 | 40.0 |
-| 4.5 | 45.0 |
-| 5.0 | 50.0 |
-
-**Wzór do obliczenia:** `I [mA] = U [V] / 100 [Ω] × 1000`
-
----
-
-### Pomiar 2: R = 1kΩ, zakres 0–12V
-
-**Obliczenie prądu maksymalnego:**
-
-```
-I_max = 12 / 1000 = 12 mA
-P_max = 144 / 1000 = 144 mW
+    return 0;
+}
 ```
 
-Bezpieczne dla amperomierza i rezystora 1/4W.
-
-**Przykładowa tabela pomiarowa:**
-
-| U [V] | I obliczone [mA] |
-|-------|-------------------|
-| 0 | 0.0 |
-| 1 | 1.0 |
-| 2 | 2.0 |
-| 3 | 3.0 |
-| 4 | 4.0 |
-| 5 | 5.0 |
-| 6 | 6.0 |
-| 7 | 7.0 |
-| 8 | 8.0 |
-| 9 | 9.0 |
-| 10 | 10.0 |
-| 11 | 11.0 |
-| 12 | 12.0 |
-
-**Wzór:** `I [mA] = U [V] / 1000 [Ω] × 1000 = U [V]`
-
----
-
-### Pomiar 3: R = 4.7kΩ, zakres 0–24V
-
-**Obliczenie prądu maksymalnego:**
+**Wyjaśnienie działania paska LED:**
 
 ```
-I_max = 24 / 4700 = 5.106 mA
-P_max = 576 / 4700 = 122.6 mW
-```
-
-Bezpieczne dla amperomierza i rezystora 1/4W.
-
-**Przykładowa tabela pomiarowa:**
-
-| U [V] | I obliczone [mA] |
-|-------|-------------------|
-| 0 | 0.00 |
-| 2 | 0.43 |
-| 4 | 0.85 |
-| 6 | 1.28 |
-| 8 | 1.70 |
-| 10 | 2.13 |
-| 12 | 2.55 |
-| 14 | 2.98 |
-| 16 | 3.40 |
-| 18 | 3.83 |
-| 20 | 4.26 |
-| 22 | 4.68 |
-| 24 | 5.11 |
-
-**Wzór:** `I [mA] = U [V] / 4700 [Ω] × 1000`
-
----
-
-### Jak rysować charakterystykę U/I
-
-Na wykresie:
-- Oś X = napięcie U [V]
-- Oś Y = prąd I [mA]
-- Punkty pomiarowe połączone linią
-
-Dla rezystora idealnego (liniowego) wykres to **linia prosta** przechodząca przez punkt (0,0). Nachylenie prostej = 1/R (konduktancja). Im mniejszy R, tym bardziej stroma linia.
-
----
-
-## Zadanie 3 — Dobór rezystora
-
-### Przypadek A: I = 15 mA, U = 10V
-
-```
-R = U / I = 10 / 0.015 = 666.67 Ω
-```
-
-**Najbliższe wartości z szeregu E24:**
-- **680Ω** (najbliższa standardowa wartość)
-
-Sprawdzenie z R = 680Ω:
-```
-I = 10 / 680 = 14.71 mA    (blisko 15 mA)
-P = 10² / 680 = 147 mW     (OK dla 1/4W)
-```
-
-**Sprawdzenie mocy:**
-```
-P = U × I = 10 × 0.015 = 150 mW — OK dla 1/4W
+Krok 0: PORTD = 0b00000000  (wszystkie OFF)
+Krok 1: PORTD = 0b00000001  (1 LED)
+Krok 2: PORTD = 0b00000011  (2 LED)
+Krok 3: PORTD = 0b00000111  (3 LED)
+...
+Krok 8: PORTD = 0b11111111  (8 LED — wszystkie ON)
 ```
 
 ---
 
-### Przypadek B: I = 1.5 mA, U = 5V
+## 3. Wyświetlacz 7-segmentowy — 1 cyfra
+
+### Zadanie 3.1 — Jak działa wyświetlacz 7-segmentowy?
+
+Wyświetlacz 7-segmentowy składa się z 7 diod LED (segmenty a-g) + kropka (dp), ułożonych w kształt cyfry 8. Każdy segment jest sterowany osobnym pinem.
 
 ```
-R = U / I = 5 / 0.0015 = 3333.33 Ω
+    aaaa
+   f    b
+   f    b
+    gggg
+   e    c
+   e    c
+    dddd  .dp
 ```
 
-**Najbliższe wartości z szeregu E24:**
-- **3.3kΩ** (najbliższa standardowa wartość)
+**Typy wyświetlaczy:**
+- **Wspólna anoda (common anode)** — wspólny +, segmenty włączane stanem LOW (0)
+- **Wspólna katoda (common cathode)** — wspólny GND, segmenty włączane stanem HIGH (1)
 
-Sprawdzenie z R = 3.3kΩ:
-```
-I = 5 / 3300 = 1.515 mA    (blisko 1.5 mA)
-P = 25 / 3300 = 7.6 mW     (OK dla 1/4W)
-```
+### Zadanie 3.2 — Sterowanie 1 cyfrą
 
-**Sprawdzenie mocy:**
-```
-P = U × I = 5 × 0.0015 = 7.5 mW — OK dla 1/4W
-```
+**Tablica kodów dla wyświetlacza (wspólna katoda, segmenty na porcie D):**
 
----
+Zakładamy mapowanie: PD0=a, PD1=b, PD2=c, PD3=d, PD4=e, PD5=f, PD6=g
 
-### Podsumowanie Zadania 3
+```c
+//                    gfedcba
+// Cyfra 0: a,b,c,d,e,f ON   = 0b0111111 = 0x3F
+// Cyfra 1: b,c ON            = 0b0000110 = 0x06
+// Cyfra 2: a,b,d,e,g ON     = 0b1011011 = 0x5B
+// itd.
 
-| Wymaganie | R obliczone | R dobrane (E24) | I rzeczywiste | P |
-|-----------|------------|-----------------|---------------|---|
-| 15 mA / 10V | 666.7 Ω | **680 Ω** | 14.71 mA | 147 mW |
-| 1.5 mA / 5V | 3333 Ω | **3.3 kΩ** | 1.52 mA | 7.6 mW |
-
----
-
-## Popularne szeregi rezystorów (do doboru)
-
-**Szereg E12** (tolerancja ±10%):
-```
-1.0  1.2  1.5  1.8  2.2  2.7  3.3  3.9  4.7  5.6  6.8  8.2
-```
-
-**Szereg E24** (tolerancja ±5%):
-```
-1.0  1.1  1.2  1.3  1.5  1.6  1.8  2.0  2.2  2.4  2.7  3.0
-3.3  3.6  3.9  4.3  4.7  5.1  5.6  6.2  6.8  7.5  8.2  9.1
+const uint8_t tab[10] = {
+    0x3F,  // 0 → segmenty: a,b,c,d,e,f
+    0x06,  // 1 → segmenty: b,c
+    0x5B,  // 2 → segmenty: a,b,d,e,g
+    0x4F,  // 3 → segmenty: a,b,c,d,g
+    0x66,  // 4 → segmenty: b,c,f,g
+    0x6D,  // 5 → segmenty: a,c,d,f,g
+    0x7D,  // 6 → segmenty: a,c,d,e,f,g
+    0x07,  // 7 → segmenty: a,b,c
+    0x7F,  // 8 → segmenty: a,b,c,d,e,f,g
+    0x6F   // 9 → segmenty: a,b,c,d,f,g
+};
 ```
 
-Wartości powyższe mnożymy przez dekady: ×1, ×10, ×100, ×1k, ×10k, ×100k, ×1M.
+**Dla wspólnej anody (odwrócone bity):**
 
----
-
-## Szybki kalkulator — wzory do kopiowania
-
-```
-# Prawo Ohma
-I = U / R
-U = I * R
-R = U / I
-
-# Moc
-P = U * I
-P = I² * R        →  P = I*I*R
-P = U² / R        →  P = U*U/R
-
-# Tolerancja
-R_min = R_nom * (1 - tolerancja/100)
-R_max = R_nom * (1 + tolerancja/100)
-
-# Dobór rezystora
-R = U / I
+```c
+const uint8_t tab[10] = {
+    ~0x3F & 0x7F,  // 0
+    ~0x06 & 0x7F,  // 1
+    ~0x5B & 0x7F,  // 2
+    ~0x4F & 0x7F,  // 3
+    ~0x66 & 0x7F,  // 4
+    ~0x6D & 0x7F,  // 5
+    ~0x7D & 0x7F,  // 6
+    ~0x07 & 0x7F,  // 7
+    ~0x7F & 0x7F,  // 8
+    ~0x6F & 0x7F   // 9
+};
 ```
 
----
+**Pełny program — licznik 0-9:**
 
-## Kod Python — kalkulator do obliczeń laboratoryjnych
+```c
+#include <avr/io.h>
+#include <util/delay.h>
 
-Poniższy skrypt pozwala szybko obliczyć wszystkie wartości z zadań:
+// Tablica segmentów (wspólna katoda)
+// Mapowanie: PD0=a, PD1=b, PD2=c, PD3=d, PD4=e, PD5=f, PD6=g
+const uint8_t tab[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
 
-```python
-# === KALKULATOR LABORATORIUM 2 ===
-# Prawo Ohma, moc, tolerancja, dobór rezystora
+int main(void) {
+    // === KONFIGURACJA ===
+    DDRD = 0xFF;            // Port D (segmenty) jako wyjście
+    DDRC |= (1 << PC0);    // PC0 (7SEG_S1) jako wyjście — cyfra 1
 
-def prawo_ohma(U=None, I=None, R=None):
-    """Oblicz brakującą wielkość z prawa Ohma."""
-    if U is None:
-        return I * R
-    elif I is None:
-        return U / R
-    elif R is None:
-        return U / I
+    PORTC |= (1 << PC0);   // Włącz cyfrę 1 (aktywuj wyświetlacz)
 
-def moc(U=None, I=None, R=None):
-    """Oblicz moc na rezystorze."""
-    if U is not None and I is not None:
-        return U * I
-    elif U is not None and R is not None:
-        return U**2 / R
-    elif I is not None and R is not None:
-        return I**2 * R
+    // === PĘTLA GŁÓWNA ===
+    while (1) {
+        for (uint8_t i = 0; i <= 9; i++) {
+            PORTD = tab[i];     // Wyświetl cyfrę
+            _delay_ms(1000);    // Czekaj 1 sekundę
+        }
+    }
 
-def tolerancja(R_nom, tol_procent):
-    """Oblicz zakres rezystancji z tolerancją."""
-    odch = R_nom * tol_procent / 100
-    return R_nom - odch, R_nom + odch
+    return 0;
+}
+```
 
-def czy_1_4W(P_wat):
-    """Sprawdź czy rezystor 1/4W wystarczy."""
-    return P_wat <= 0.25
+### Mapowanie segmentów — tabela referencyjna
 
-# ==========================================
-# ZADANIE 1 — Obliczenia
-# ==========================================
-print("=" * 50)
-print("ZADANIE 1 — Obliczenia mocy i pradu")
-print("=" * 50)
-
-przypadki = [
-    (470, 5),
-    (470, 12),
-    (1000, 24),
-    (100000, 230),
-]
-
-for R, U in przypadki:
-    I = prawo_ohma(U=U, R=R)
-    P = moc(U=U, R=R)
-    ok = "TAK" if czy_1_4W(P) else "NIE"
-    print(f"\nR={R}Ω, U={U}V:")
-    print(f"  I = {I*1000:.2f} mA")
-    print(f"  P = {P*1000:.1f} mW")
-    print(f"  Rezystor 1/4W wystarczy? {ok}")
-
-# ==========================================
-# TOLERANCJA
-# ==========================================
-print(f"\n{'=' * 50}")
-print("TOLERANCJA — Rezystor 1k, 5%")
-print("=" * 50)
-r_min, r_max = tolerancja(1000, 5)
-print(f"Zakres: {r_min:.0f} Ω – {r_max:.0f} Ω")
-
-# ==========================================
-# ZADANIE 3 — Dobór rezystora
-# ==========================================
-print(f"\n{'=' * 50}")
-print("ZADANIE 3 — Dobor rezystora")
-print("=" * 50)
-
-# Przypadek A
-R_a = prawo_ohma(U=10, I=0.015)
-print(f"\na) I=15mA, U=10V → R = {R_a:.1f} Ω → dobieramy 680Ω")
-print(f"   Sprawdzenie: I = {10/680*1000:.2f} mA, P = {moc(U=10, R=680)*1000:.1f} mW")
-
-# Przypadek B
-R_b = prawo_ohma(U=5, I=0.0015)
-print(f"\nb) I=1.5mA, U=5V → R = {R_b:.1f} Ω → dobieramy 3.3kΩ")
-print(f"   Sprawdzenie: I = {5/3300*1000:.2f} mA, P = {moc(U=5, R=3300)*1000:.1f} mW")
-
-# ==========================================
-# ZADANIE 2 — Generowanie tabel pomiarowych
-# ==========================================
-print(f"\n{'=' * 50}")
-print("ZADANIE 2 — Tabele pomiarowe (wartosci teoretyczne)")
-print("=" * 50)
-
-pomiary = [
-    (100, 0, 5, 0.5),
-    (1000, 0, 12, 1),
-    (4700, 0, 24, 2),
-]
-
-for R, U_min, U_max, krok in pomiary:
-    print(f"\nR = {R}Ω, zakres {U_min}-{U_max}V:")
-    print(f"  {'U [V]':>8} | {'I [mA]':>10} | {'P [mW]':>10}")
-    print(f"  {'-'*8}-+-{'-'*10}-+-{'-'*10}")
-    U = U_min
-    while U <= U_max + 0.01:
-        I_val = U / R * 1000  # mA
-        P_val = U**2 / R * 1000  # mW
-        print(f"  {U:8.1f} | {I_val:10.2f} | {P_val:10.2f}")
-        U += krok
+```
+Cyfra  | a | b | c | d | e | f | g | HEX  | BIN
+-------|---|---|---|---|---|---|---|------|----------
+  0    | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0x3F | 0111111
+  1    | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0x06 | 0000110
+  2    | 1 | 1 | 0 | 1 | 1 | 0 | 1 | 0x5B | 1011011
+  3    | 1 | 1 | 1 | 1 | 0 | 0 | 1 | 0x4F | 1001111
+  4    | 0 | 1 | 1 | 0 | 0 | 1 | 1 | 0x66 | 1100110
+  5    | 1 | 0 | 1 | 1 | 0 | 1 | 1 | 0x6D | 1101101
+  6    | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 0x7D | 1111101
+  7    | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 0x07 | 0000111
+  8    | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0x7F | 1111111
+  9    | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 0x6F | 1101111
 ```
 
 ---
 
-## Wskazówki praktyczne
+## 4. Wyświetlacz 7-segmentowy — 4 cyfry — multipleksowanie
 
-**Podłączanie amperomierza:** Amperomierz zawsze podłączamy **szeregowo** (w obwód). Nigdy równolegle — spowoduje to zwarcie i uszkodzenie miernika.
+### Zadanie 4.1 — Multipleksowanie
 
-**Podłączanie woltomierza:** Woltomierz podłączamy **równolegle** do elementu, na którym mierzymy napięcie.
+**Czym jest multipleksowanie?**
+Multipleksowanie polega na szybkim przełączaniu między cyframi wyświetlacza — w danym momencie świeci tylko jedna cyfra, ale przy odpowiednio szybkim przełączaniu (>100Hz) ludzkie oko widzi wszystkie 4 cyfry jednocześnie.
 
-**Zasilacz laboratoryjny:** Przed włączeniem ustaw napięcie na 0V. Powoli zwiększaj napięcie obserwując amperomierz — prąd nie powinien przekroczyć wartości obliczonej.
+**Podłączenie:**
+- Segmenty (a-g) → Port D (wspólne dla wszystkich cyfr)
+- Cyfra 1 (7SEG_S1) → PC0
+- Cyfra 2 (7SEG_S2) → PC1
+- Cyfra 3 (7SEG_S3) → PC2
+- Cyfra 4 (7SEG_S4) → PC3
 
-**Odczyt kodu paskowego rezystora (4 paski):**
+**Program wyświetlający 4-cyfrową liczbę:**
+
+```c
+#include <avr/io.h>
+#include <util/delay.h>
+
+const uint8_t tab[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
+
+// Wyświetl 4-cyfrową liczbę z multipleksowaniem
+void display_number(uint16_t number, uint16_t duration_ms) {
+    uint8_t digits[4];
+
+    // Rozbij liczbę na poszczególne cyfry
+    digits[0] = number / 1000;          // Tysiące
+    digits[1] = (number / 100) % 10;    // Setki
+    digits[2] = (number / 10) % 10;     // Dziesiątki
+    digits[3] = number % 10;            // Jedności
+
+    // Multipleksowanie przez zadany czas
+    for (uint16_t t = 0; t < duration_ms / 20; t++) {
+        for (uint8_t i = 0; i < 4; i++) {
+            PORTC &= ~(0x0F);          // Wyłącz wszystkie cyfry
+            PORTD = tab[digits[i]];    // Ustaw segmenty
+            PORTC |= (1 << i);        // Włącz odpowiednią cyfrę
+            _delay_ms(5);             // Czas świecenia jednej cyfry
+        }
+    }
+}
+
+int main(void) {
+    DDRD = 0xFF;                        // Port D (segmenty) — wyjście
+    DDRC |= (1 << PC0) | (1 << PC1)    // Cyfry 1-4 — wyjście
+          | (1 << PC2) | (1 << PC3);
+
+    uint16_t liczba = 1234;             // Dowolna 4-cyfrowa liczba
+
+    while (1) {
+        display_number(liczba, 1000);   // Wyświetlaj przez 1s
+    }
+
+    return 0;
+}
 ```
-Pasek 1: pierwsza cyfra
-Pasek 2: druga cyfra
-Pasek 3: mnożnik (liczba zer)
-Pasek 4: tolerancja (złoty=5%, srebrny=10%, brązowy=1%)
 
-Przykład: brązowy-czarny-czerwony-złoty = 1 0 ×100 = 1kΩ ±5%
+### Zadanie 4.2 — Timer do gotowania
+
+**Pełny program:**
+
+```c
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define BUZZER PB1
+
+// Przyciski
+#define SW1 PC4   // Zwiększ czas (+1s)
+#define SW2 PC5   // Zmniejsz czas (-1s)
+#define SW3 PC6   // Kasuj / przerwij — dostosuj do płytki
+#define SW4 PC7   // Start odliczania — dostosuj do płytki
+
+// Alternatywnie, jeśli SW3/SW4 na innym porcie:
+// #define SW3 PB2
+// #define SW4 PB3
+
+const uint8_t tab[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
+
+// Wyświetlanie multipleksowane (jedno przejście ~20ms)
+void display_refresh(uint16_t number) {
+    uint8_t digits[4];
+    digits[0] = number / 1000;
+    digits[1] = (number / 100) % 10;
+    digits[2] = (number / 10) % 10;
+    digits[3] = number % 10;
+
+    for (uint8_t i = 0; i < 4; i++) {
+        PORTC &= ~(0x0F);          // Wyłącz cyfry
+        PORTD = tab[digits[i]];    // Ustaw segmenty
+        PORTC |= (1 << i);        // Włącz cyfrę i
+        _delay_ms(5);
+    }
+}
+
+// Krótki beep
+void beep_short(void) {
+    for (uint16_t i = 0; i < 100; i++) {
+        PORTB |= (1 << BUZZER);
+        _delay_us(500);
+        PORTB &= ~(1 << BUZZER);
+        _delay_us(500);
+    }
+}
+
+// Sprawdź przycisk z debouncingiem
+uint8_t button_pressed(volatile uint8_t *pin_reg, uint8_t pin) {
+    if (!(*pin_reg & (1 << pin))) {
+        _delay_ms(20);
+        if (!(*pin_reg & (1 << pin))) {
+            while (!(*pin_reg & (1 << pin)));  // Czekaj na puszczenie
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int main(void) {
+    // === KONFIGURACJA ===
+    DDRD = 0xFF;                          // Segmenty
+    DDRC |= 0x0F;                        // Cyfry S1-S4 (PC0-PC3) jako wyjścia
+    DDRC &= ~((1 << SW1) | (1 << SW2));  // Przyciski jako wejścia
+    PORTC |= (1 << SW1) | (1 << SW2);    // Pull-up na przyciskach
+    // Konfiguracja SW3, SW4 analogicznie
+
+    DDRB |= (1 << BUZZER);               // Buzzer jako wyjście
+
+    uint16_t czas_s = 0;     // Ustawiony czas w sekundach
+
+    while (1) {
+        // =========================================
+        // TRYB USTAWIANIA CZASU
+        // =========================================
+        while (1) {
+            display_refresh(czas_s);
+
+            // SW1 — zwiększ czas
+            if (button_pressed(&PINC, SW1)) {
+                if (czas_s < 9999) czas_s++;
+            }
+
+            // SW2 — zmniejsz czas
+            if (button_pressed(&PINC, SW2)) {
+                if (czas_s > 0) czas_s--;
+            }
+
+            // SW3 — kasuj
+            if (button_pressed(&PINC, SW3)) {
+                czas_s = 0;
+            }
+
+            // SW4 — start odliczania
+            if (button_pressed(&PINC, SW4) && czas_s > 0) {
+                break;  // Przejdź do odliczania
+            }
+        }
+
+        // =========================================
+        // TRYB ODLICZANIA
+        // =========================================
+        while (czas_s > 0) {
+            // Wyświetlaj przez ~1 sekundę (50 × 20ms = 1000ms)
+            for (uint8_t t = 0; t < 50; t++) {
+                display_refresh(czas_s);
+
+                // Sprawdź SW3 — przerwij odliczanie
+                if (button_pressed(&PINC, SW3)) {
+                    czas_s = 0;
+                    goto tryb_ustawiania;
+                }
+            }
+            czas_s--;
+        }
+
+        // =========================================
+        // ALARM — CZAS MINĄŁ
+        // =========================================
+        display_refresh(0);
+
+        // Sygnał dźwiękowy przez 2 sekundy
+        for (uint8_t a = 0; a < 10; a++) {
+            beep_short();
+            _delay_ms(100);
+        }
+
+        tryb_ustawiania:
+        czas_s = 0;  // Powrót do trybu ustawiania
+    }
+
+    return 0;
+}
 ```
 
 ---
 
-*Źródło zadań: Wojciech Tarnawski — Elementy Elektroniki i Elektrotechniki, Laboratorium 2*
+## 5. Zadanie domowe — funkcja nieblokująca wyświetlacza
+
+**Wymagania:**
+- Zmienna globalna `uint16_t display_value` przechowuje liczbę do wyświetlenia
+- Funkcja wywoływana cyklicznie z `main()` — bez `delay`!
+- Każde wywołanie wyświetla jedną cyfrę (1→2→3→4→1→...)
+- Zmienna `static` pamięta aktualnie wyświetlaną cyfrę
+
+```c
+#include <avr/io.h>
+
+const uint8_t tab[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66,
+    0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
+
+// Zmienna globalna — liczba do wyświetlenia
+volatile uint16_t display_value = 0;
+
+// Funkcja nieblokująca — wywołuj cyklicznie z main()
+void display_multiplex(void) {
+    static uint8_t current_digit = 0;  // Pamięta, którą cyfrę wyświetlamy
+
+    uint8_t digits[4];
+    digits[0] = display_value / 1000;
+    digits[1] = (display_value / 100) % 10;
+    digits[2] = (display_value / 10) % 10;
+    digits[3] = display_value % 10;
+
+    // Wyłącz wszystkie cyfry
+    PORTC &= ~(0x0F);
+
+    // Ustaw segmenty dla aktualnej cyfry
+    PORTD = tab[digits[current_digit]];
+
+    // Włącz odpowiednią cyfrę
+    PORTC |= (1 << current_digit);
+
+    // Przejdź do następnej cyfry (0→1→2→3→0→...)
+    current_digit++;
+    if (current_digit >= 4) {
+        current_digit = 0;
+    }
+}
+
+int main(void) {
+    DDRD = 0xFF;      // Segmenty — wyjście
+    DDRC |= 0x0F;     // Cyfry S1-S4 — wyjście
+
+    display_value = 4567;  // Przykładowa liczba
+
+    while (1) {
+        display_multiplex();  // Wywołuj cyklicznie
+
+        // Tu możesz robić inne rzeczy...
+        // np. sprawdzać przyciski, liczyć czas, itp.
+
+        // Małe opóźnienie — ~5ms daje ~50Hz na cyfrę
+        // (w pełnym programie lepiej użyć timera)
+        _delay_ms(5);
+    }
+
+    return 0;
+}
+```
+
+**Wyjaśnienie modyfikatora `static`:**
+
+```c
+static uint8_t current_digit = 0;
+```
+
+- `static` w funkcji → zmienna zachowuje wartość między wywołaniami funkcji
+- Bez `static` → zmienna byłaby zerowana przy każdym wywołaniu
+- Inicjalizacja `= 0` wykonuje się tylko raz (przy pierwszym wywołaniu)
+
+**Dlaczego to lepsze od wersji z `delay`?**
+- Nie blokuje programu — `main()` może robić inne rzeczy
+- Łatwo dodać obsługę przycisków, timera, komunikacji
+- W prawdziwych projektach używa się przerwań timera zamiast `_delay_ms(5)`
+
+---
+
+## Przydatne operacje bitowe — ściąga
+
+```c
+// Ustawienie bitu (SET)
+PORTB |= (1 << PB0);           // Ustaw bit 0
+
+// Zerowanie bitu (CLEAR)
+PORTB &= ~(1 << PB0);          // Wyzeruj bit 0
+
+// Przełączenie bitu (TOGGLE)
+PORTB ^= (1 << PB0);           // Odwróć bit 0
+
+// Sprawdzenie bitu (TEST)
+if (PINB & (1 << PB0)) { }     // Czy bit 0 jest 1?
+if (!(PINB & (1 << PB0))) { }  // Czy bit 0 jest 0?
+
+// Ustawienie wielu bitów
+DDRB |= (1 << PB0) | (1 << PB1) | (1 << PB2);
+
+// Cały port na raz
+DDRD = 0xFF;    // Wszystkie piny portu D jako wyjścia
+PORTD = 0x00;   // Wszystkie piny portu D w stan niski
+```
+
+---
+
+## Konfiguracja projektu w Atmel Studio / Microchip Studio
+
+```c
+// Na początku każdego programu:
+#define F_CPU 16000000UL    // Częstotliwość zegara 16MHz (Arduino Nano)
+#include <avr/io.h>
+#include <util/delay.h>
+
+// Opcjonalnie:
+#include <avr/interrupt.h>  // Jeśli używamy przerwań
+#include <stdint.h>         // uint8_t, uint16_t, itd.
+```
+
+**Ustawienia projektu:**
+- MCU: ATmega328P
+- Częstotliwość: 16 MHz
+- Optymalizacja: -Os (wymagane dla `_delay_ms`)
+
+---
+
+*Źródło zadań: Wojciech Tarnawski — Technika Cyfrowa i Mikroprocesorowa, Laboratorium 2*
